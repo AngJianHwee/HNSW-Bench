@@ -1,0 +1,52 @@
+# HNSW vs IVF-PQ Benchmark Configuration
+# All parameters can be tuned here without modifying code
+
+# Execution control - which phases to run
+run:
+  phase1_download: true
+  phase2_groundtruth: true
+  phase3_hnsw: true
+  phase3_ivfpq: true
+  phase4_visualize: true
+
+# Data paths
+data:
+  base_path: "data/sift_base.fvecs"
+  query_path: "data/sift_query.fvecs"
+  learn_path: "data/sift_learn.fvecs"
+  gt_path: "data/groundtruth_flat.ivecs"
+  gt_distances_path: "data/groundtruth_flat_distances.fvecs"
+
+# Ground truth parameters
+groundtruth:
+  k: 10
+
+# HNSW parameters
+hnsw:
+  M: 16
+  ef_construction: 64
+  ef_search_values: [8, 16, 32, 64, 128]
+  k: 10
+
+# IVF-PQ parameters
+ivfpq:
+  nlist: 1024
+  m: 8
+  nbits: 8
+  nprobe_values: [1, 4, 8, 16, 32]
+  k: 10
+
+# Visualization parameters
+visualization:
+  flat_memory_mb: 512  # Approximate Flat index memory for 1M x 128 float32
+  output_dir: "."
+  dpi: 150
+
+# Output paths
+output:
+  hnsw_results: "results_hnsw.csv"
+  ivfpq_results: "results_ivfpq.csv"
+  combined_results: "results_combined.csv"
+  plot_recall_qps: "plot_recall_vs_qps.png"
+  plot_memory: "plot_memory.png"
+  plot_build_time: "plot_build_time.png"
