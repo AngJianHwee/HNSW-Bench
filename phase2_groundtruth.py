@@ -98,18 +98,20 @@ def build_flat_index_and_compute_gt(
     resolved_query_path = query_path or cfg.data.query_path
     resolved_gt_path = gt_path or cfg.data.gt_path
     resolved_k = k or cfg.groundtruth.k
+    data_fraction = cfg.data.data_fraction
     
     print("=" * 60)
     print("Phase 2: Building Flat Index & Computing Ground Truth")
     print("=" * 60)
+    print(f"data_fraction: {data_fraction}")
     
     # Load data
     print("Loading base vectors...")
-    base_vectors = read_fvecs(resolved_base_path)
+    base_vectors = read_fvecs(resolved_base_path, fraction=data_fraction)
     print(f"Base shape: {base_vectors.shape}")
     
     print("Loading query vectors...")
-    query_vectors = read_fvecs(resolved_query_path)
+    query_vectors = read_fvecs(resolved_query_path, fraction=data_fraction)
     print(f"Query shape: {query_vectors.shape}")
     
     d = base_vectors.shape[1]

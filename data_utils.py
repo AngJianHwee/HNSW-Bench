@@ -6,7 +6,7 @@ import numpy as np
 import os
 
 
-def read_fvecs(filepath: str) -> np.ndarray:
+def read_fvecs(filepath: str, fraction: float = 1.0) -> np.ndarray:
     """
     Read .fvecs file (float32 vectors).
     
@@ -16,12 +16,16 @@ def read_fvecs(filepath: str) -> np.ndarray:
     
     Args:
         filepath: Path to .fvecs file
+        fraction: Fraction of vectors to read (0.0-1.0). Default 1.0 reads all.
         
     Returns:
         numpy array of shape (n_vectors, dimension) with dtype float32
     """
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"File not found: {filepath}")
+    
+    if not 0.0 < fraction <= 1.0:
+        raise ValueError(f"fraction must be in (0.0, 1.0], got {fraction}")
     
     # Read the entire file as bytes
     with open(filepath, 'rb') as f:
@@ -40,12 +44,17 @@ def read_fvecs(filepath: str) -> np.ndarray:
     vector_size = 4 + dim * 4
     n_vectors = len(data) // vector_size
     
+    # Apply fraction
+    n_vectors_to_read = int(n_vectors * fraction)
+    if n_vectors_to_read == 0:
+        n_vectors_to_read = 1
+    
     # Pre-allocate output array
-    vectors = np.empty((n_vectors, dim), dtype=np.float32)
+    vectors = np.empty((n_vectors_to_read, dim), dtype=np.float32)
     
     # Parse each vector
     offset = 0
-    for i in range(n_vectors):
+    for i in range(n_vectors_to_read):
         # Skip dimension (4 bytes), read vector data
         vector_data = np.frombuffer(data[offset + 4:offset + vector_size], dtype=np.float32)
         vectors[i] = vector_data
@@ -54,7 +63,7 @@ def read_fvecs(filepath: str) -> np.ndarray:
     return vectors
 
 
-def read_ivecs(filepath: str) -> np.ndarray:
+def read_ivecs(filepath: str, fraction: float = 1.0) -> np.ndarray:
     """
     Read .ivecs file (int32 vectors, typically ground truth indices).
     
@@ -64,12 +73,16 @@ def read_ivecs(filepath: str) -> np.ndarray:
     
     Args:
         filepath: Path to .ivecs file
+        fraction: Fraction of vectors to read (0.0-1.0). Default 1.0 reads all.
         
     Returns:
         numpy array of shape (n_vectors, dimension) with dtype int32
     """
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"File not found: {filepath}")
+    
+    if not 0.0 < fraction <= 1.0:
+        raise ValueError(f"fraction must be in (0.0, 1.0], got {fraction}")
     
     # Read the entire file as bytes
     with open(filepath, 'rb') as f:
@@ -88,12 +101,17 @@ def read_ivecs(filepath: str) -> np.ndarray:
     vector_size = 4 + dim * 4
     n_vectors = len(data) // vector_size
     
+    # Apply fraction
+    n_vectors_to_read = int(n_vectors * fraction)
+    if n_vectors_to_read == 0:
+        n_vectors_to_read = 1
+    
     # Pre-allocate output array
-    vectors = np.empty((n_vectors, dim), dtype=np.int32)
+    vectors = np.empty((n_vectors_to_read, dim), dtype=np.int32)
     
     # Parse each vector
     offset = 0
-    for i in range(n_vectors):
+    for i in range(n_vectors_to_read):
         # Skip dimension (4 bytes), read vector data
         vector_data = np.frombuffer(data[offset + 4:offset + vector_size], dtype=np.int32)
         vectors[i] = vector_data
