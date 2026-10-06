@@ -12,6 +12,17 @@ This project benchmarks **HNSW** (Hierarchical Navigable Small World) on the sta
 
 ---
 
+## Plot Results
+
+<img width="989" height="1039" alt="image" src="https://github.com/user-attachments/assets/d34ba3d8-c9fe-495a-b1c4-7d67e1b15221" />
+
+<img width="1002" height="881" alt="image" src="https://github.com/user-attachments/assets/e66fae89-23c3-4bd3-a8b4-255f6569a7db" />
+
+<img width="962" height="1665" alt="image" src="https://github.com/user-attachments/assets/c86b66b1-8efb-4c28-b5ba-7cb8ea3bfc7c" />
+
+
+---
+
 ## 📊 Dataset
 
 | Component | File | Size |
