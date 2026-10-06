@@ -2,148 +2,23 @@
 """
 Phase 3: HNSW Index Construction and Parameter Sweep.
 Tests grid search over M, ef_construction, and ef_search parameters.
-Uses subprocess for accurate memory measurement.
 """
 import os
 import time
-import json
-import subprocess
-import sys
 import gc
 import numpy as np
 import pandas as pd
+import faiss
 from itertools import product
 from data_utils import read_fvecs
 from phase2_groundtruth import recall_at_k_vectorized, load_groundtruth
 from config_loader import get_config
 
 
-def run_hnsw_single_experiment(
-    base_path: str,
-    query_path: str,
-    gt_path: str,
-    M: int,
-    ef_construction: int,
-    ef_search: int,
-    k: int
-) -> dict:
-    """
-    Run a single HNSW experiment in a subprocess for accurate memory measurement.
-    
-    Returns:
-        Dictionary with build_time_s, search_time_s, qps, recall, peak_memory_mb, index_memory_mb
-    """
-    # Create a temporary script that runs the experiment and outputs JSON
-    script = f'''
-import os
-import time
-import json
-import gc
-import sys
-import numpy as np
-import faiss
-import resource
-import platform
-from data_utils import read_fvecs
-from phase2_groundtruth import recall_at_k_vectorized, load_groundtruth
-from config_loader import get_config
-
-def get_peak_memory_mb():
-    """Get peak memory usage in MB using resource module (ru_maxrss is peak RSS)."""
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    ru_maxrss = usage.ru_maxrss
-    # On Linux, ru_maxrss is in KB; on macOS, it's in bytes
-    if platform.system() == "Darwin":
-        return ru_maxrss / (1024 * 1024)
-    else:
-        return ru_maxrss / 1024
-
-def get_index_memory_mb(index):
+def get_index_memory_mb(index) -> float:
     """Get index memory in MB by serializing to bytes."""
-    # Serialize index to bytes using faiss.serialize_index
     serialized = faiss.serialize_index(index)
     return serialized.nbytes / (1024 * 1024)
-
-# Force garbage collection before measuring
-gc.collect()
-
-# Load config for data_fraction
-cfg = get_config()
-data_fraction = cfg.data.data_fraction
-
-# Load data
-base_vectors = read_fvecs("{base_path}", fraction=data_fraction)
-query_vectors = read_fvecs("{query_path}", fraction=data_fraction)
-groundtruth = load_groundtruth("{gt_path}")
-
-d = base_vectors.shape[1]
-n_queries = query_vectors.shape[0]
-
-# Validate query count
-n_gt_queries = groundtruth.shape[0]
-if n_gt_queries != n_queries:
-    query_vectors = query_vectors[:n_gt_queries]
-    n_queries = n_gt_queries
-
-# Build index
-start_build = time.time()
-
-index = faiss.IndexHNSWFlat(d, {M})
-index.hnsw.efConstruction = {ef_construction}
-index.add(base_vectors)
-
-build_time = time.time() - start_build
-
-# Get peak memory after build phase
-build_peak_mem = get_peak_memory_mb()
-
-# Get index memory by serialization
-index_mem = get_index_memory_mb(index)
-
-# Search
-index.hnsw.efSearch = {ef_search}
-start_search = time.time()
-
-distances, labels = index.search(query_vectors, {k})
-
-search_time = time.time() - start_search
-
-# Get peak memory after search phase (overall peak)
-overall_peak_mem = get_peak_memory_mb()
-
-qps = n_queries / search_time
-recall = recall_at_k_vectorized(groundtruth, labels, {k})
-
-result = {{
-    "build_time_s": build_time,
-    "search_time_s": search_time,
-    "qps": qps,
-    "recall": recall,
-    "peak_memory_mb": overall_peak_mem,
-    "build_peak_memory_mb": build_peak_mem,
-    "index_memory_mb": index_mem
-}}
-
-print(json.dumps(result))
-'''
-    
-    # Run in subprocess
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        cwd=os.path.dirname(os.path.abspath(__file__))
-    )
-    
-    if result.returncode != 0:
-        print(f"  ERROR: Subprocess failed with return code {result.returncode}")
-        print(f"  stderr: {result.stderr}")
-        raise RuntimeError(f"Subprocess failed: {result.stderr}")
-    
-    # Parse JSON output (last line)
-    output_lines = result.stdout.strip().split('\n')
-    json_line = output_lines[-1]
-    return json.loads(json_line)
 
 
 def run_hnsw_experiment(
@@ -191,7 +66,7 @@ def run_hnsw_experiment(
     print(f"  data_fraction: {data_fraction}")
     print("=" * 70)
     
-    # Load data once to validate
+    # Load data once
     print("Loading base vectors...")
     base_vectors = read_fvecs(resolved_base_path, fraction=data_fraction)
     print(f"  Base shape: {base_vectors.shape}")
@@ -209,6 +84,10 @@ def run_hnsw_experiment(
     if n_gt_queries != n_queries:
         print(f"  WARNING: Ground truth has {n_gt_queries} queries, query set has {n_queries} queries.")
         print(f"  Will truncate query vectors to match ground truth ({n_gt_queries} queries).")
+        query_vectors = query_vectors[:n_gt_queries]
+        n_queries = n_gt_queries
+    
+    d = base_vectors.shape[1]
     
     # Run grid search
     results = []
@@ -221,40 +100,50 @@ def run_hnsw_experiment(
         print(f"[{combo_idx}/{len(resolved_M_values) * len(resolved_ef_construction_values)}] Building IndexHNSWFlat (M={M}, ef_construction={ef_construction})")
         print(f"{'=' * 70}")
         
+        # Build index once per (M, ef_construction) combination
+        gc.collect()
+        start_build = time.time()
+        
+        index = faiss.IndexHNSWFlat(d, M)
+        index.hnsw.efConstruction = ef_construction
+        index.add(base_vectors)
+        
+        build_time = time.time() - start_build
+        
+        # Get index memory by serialization
+        index_mem = get_index_memory_mb(index)
+        
+        print(f"  Build time: {build_time:.2f}s")
+        print(f"  Index memory: {index_mem:.2f} MB")
+        
         # Sweep ef_search for this index
         for ef_search in resolved_ef_search_values:
-            print(f"\n  [ef_search={ef_search}] Running experiment...")
+            print(f"\n  [ef_search={ef_search}] Running search...")
             try:
-                exp_result = run_hnsw_single_experiment(
-                    resolved_base_path,
-                    resolved_query_path,
-                    resolved_gt_path,
-                    M,
-                    ef_construction,
-                    ef_search,
-                    resolved_k
-                )
+                index.hnsw.efSearch = ef_search
+                start_search = time.time()
                 
-                print(f"    Build time: {exp_result['build_time_s']:.2f}s")
-                print(f"    Search time: {exp_result['search_time_s']:.3f}s")
-                print(f"    QPS: {exp_result['qps']:.2f}")
-                print(f"    Recall@{resolved_k}: {exp_result['recall']:.4f} ({exp_result['recall']*100:.2f}%)")
-                print(f"    Index memory: {exp_result['index_memory_mb']:.2f} MB")
-                print(f"    Build peak memory: {exp_result['build_peak_memory_mb']:.2f} MB")
-                print(f"    Overall peak memory: {exp_result['peak_memory_mb']:.2f} MB")
+                distances, labels = index.search(query_vectors, resolved_k)
+                
+                search_time = time.time() - start_search
+                
+                qps = n_queries / search_time
+                recall = recall_at_k_vectorized(groundtruth, labels, resolved_k)
+                
+                print(f"    Search time: {search_time:.3f}s")
+                print(f"    QPS: {qps:.2f}")
+                print(f"    Recall@{resolved_k}: {recall:.4f} ({recall*100:.2f}%)")
                 
                 results.append({
                     'algorithm': 'HNSW',
                     'M': M,
                     'ef_construction': ef_construction,
                     'ef_search': ef_search,
-                    'build_time_s': exp_result['build_time_s'],
-                    'search_time_s': exp_result['search_time_s'],
-                    'qps': exp_result['qps'],
-                    f'recall@{resolved_k}': exp_result['recall'],
-                    'peak_memory_mb': exp_result['peak_memory_mb'],
-                    'build_peak_memory_mb': exp_result['build_peak_memory_mb'],
-                    'index_memory_mb': exp_result['index_memory_mb']
+                    'build_time_s': build_time,
+                    'search_time_s': search_time,
+                    'qps': qps,
+                    f'recall@{resolved_k}': recall,
+                    'index_memory_mb': index_mem
                 })
             except Exception as e:
                 print(f"    ERROR: {e}")
@@ -267,7 +156,6 @@ def run_hnsw_experiment(
                     'search_time_s': None,
                     'qps': None,
                     f'recall@{resolved_k}': None,
-                    'peak_memory_mb': None,
                     'index_memory_mb': None,
                     'error': str(e)
                 })

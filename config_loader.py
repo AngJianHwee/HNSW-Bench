@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Configuration loader for HNSW vs IVF-PQ benchmark.
+Configuration loader for HNSW benchmark.
 Loads parameters from config.yaml with sensible defaults.
 """
 import os
@@ -78,8 +78,6 @@ if __name__ == "__main__":
     # Test config loading
     cfg = load_config("config.yaml")
     print("Config loaded successfully!")
-    print(f"HNSW M: {cfg.hnsw.M}")
+    print(f"HNSW M_values: {cfg.hnsw.M_values}")
     print(f"HNSW ef_search_values: {cfg.hnsw.ef_search_values}")
-    print(f"IVF-PQ nlist: {cfg.ivfpq.nlist}")
-    print(f"IVF-PQ nprobe_values: {cfg.ivfpq.nprobe_values}")
     print(f"Data base_path: {cfg.data.base_path}")

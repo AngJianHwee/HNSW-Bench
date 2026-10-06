@@ -1,15 +1,14 @@
-# HNSW vs IVF-PQ Benchmark on SIFT1M
+# HNSW Benchmark on SIFT1M
 
-> **Comparing Approximate Nearest Neighbor Search Algorithms at Scale**
+> **Evaluating HNSW Approximate Nearest Neighbor Search at Scale**
 
-This project benchmarks two popular ANN algorithms — **HNSW** (Hierarchical Navigable Small World) and **IVF-PQ** (Inverted File with Product Quantization) — on the standard **SIFT1M** dataset (1M vectors, 128 dimensions).
+This project benchmarks **HNSW** (Hierarchical Navigable Small World) on the standard **SIFT1M** dataset (1M vectors, 128 dimensions) using **Faiss**.
 
 ## 🎯 Project Goals
 
-- Evaluate **Recall@10 vs QPS** trade-offs for both algorithms
-- Measure **memory efficiency** compared to exact Flat (brute-force) search
-- Provide reproducible benchmarks with parameter sweeps
-- Visualize Pareto frontiers for algorithm selection guidance
+- Evaluate **Recall@10 vs QPS** trade-offs for HNSW
+- Measure **index built time** and **search time** between different configurations
+- Provide reproducible benchmarks with parameter sweeps via `config.yaml`
 
 ---
 
@@ -28,75 +27,49 @@ This project benchmarks two popular ANN algorithms — **HNSW** (Hierarchical Na
 
 ## ⚙️ Experimental Setup
 
+### Grid Search Parameters (HNSW)
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| **M** | `[16, 32, 64]` | Max connections per node (higher = better recall, more memory) |
+| **ef_construction** | `[64, 128, 256, 512]` | Search width during index build (higher = better quality, slower build) |
+| **ef_search** | `[16, 64, 128, 256]` | Search width at query time (higher = better recall, slower queries) |
+
 ### Fixed Parameters
 
-| Algorithm | Parameters |
-|-----------|------------|
-| **HNSW** | `M=16`, `ef_construction=64` |
-| **IVF-PQ** | `nlist=1024`, `m=8`, `nbits=8` |
-
-### Swept Parameters
-
-| Algorithm | Parameter | Values |
-|-----------|-----------|--------|
-| **HNSW** | `ef_search` | `[8, 16, 32, 64, 128]` |
-| **IVF-PQ** | `nprobe` | `[1, 4, 8, 16, 32]` |
+| Parameter | Value |
+|-----------|-------|
+| **k (top-k)** | 10 |
+| **Dataset** | SIFT1M (128-dim) |
 
 ### Metrics Collected
 
 - **Recall@10** — Fraction of true top-10 neighbors recovered
-- **QPS** — Queries per second (10,000 queries / total search time)
-- **Peak Memory** — RSS memory during search (MB)
-- **Build Time** — Index construction + training time (seconds)
-- **Index Memory** — Memory footprint of the index structure
+- **QPS** — Queries per second (queries / total search time)
+- **Build Time** — Index construction time (seconds)
+- **Index Memory** — Memory footprint of the index structure (via Faiss serialization)
 
 ---
 
 ## 📈 Results
 
-### Recall@10 vs QPS Trade-off
+### Generated Visualizations
 
-![Recall vs QPS](plot_recall_vs_qps.png)
+| Plot | Description |
+|------|-------------|
+| `recall_vs_qps.png` | **QPS vs Recall@10** — Subplots per M, color by M, marker by ef_construction. Shows Pareto frontier. |
+| `memory_3d_bar.png` | **3D Bar Plot** — Recall@10 by ef_construction (x) and ef_search (y), grouped by M (color). Height = Recall. |
+| `recall_vs_efsearch.png` | **Recall vs Index Memory** — One row per ef_construction. Lines connect same ef_search; markers differ by M. |
 
-*Figure 1: Pareto frontier comparison. Higher and to the right is better.*
+### Output Files
 
-### Memory Usage Comparison
-
-![Memory Comparison](plot_memory.png)
-
-*Figure 2: Index memory footprint. Flat index uses ~512 MB for 1M × 128 float32 vectors.*
-
-### Build Time Comparison
-
-![Build Time](plot_build_time.png)
-
-*Figure 3: Index construction time.*
-
----
-
-## 📋 Results Summary
-
-### HNSW (M=16, ef_construction=64)
-
-| ef_search | Recall@10 | QPS | Peak Memory (MB) |
-|-----------|-----------|-----|------------------|
-| 8         | —         | —   | —                |
-| 16        | —         | —   | —                |
-| 32        | —         | —   | —                |
-| 64        | —         | —   | —                |
-| 128       | —         | —   | —                |
-
-### IVF-PQ (nlist=1024, m=8, nbits=8)
-
-| nprobe | Recall@10 | QPS | Peak Memory (MB) |
-|--------|-----------|-----|------------------|
-| 1      | —         | —   | —                |
-| 4      | —         | —   | —                |
-| 8      | —         | —   | —                |
-| 16     | —         | —   | —                |
-| 32     | —         | —   | —                |
-
-> **Note:** Run the benchmark to populate actual results. See [Quick Start](#-quick-start).
+| File | Description |
+|------|-------------|
+| `results_hnsw.csv` | Raw HNSW grid search results |
+| `results_combined.csv` | Combined results (currently HNSW only) |
+| `recall_vs_qps.png` | Plot 1: QPS vs Recall@10 |
+| `memory_3d_bar.png` | Plot 2: 3D Recall surface |
+| `recall_vs_efsearch.png` | Plot 3: Recall vs Memory by ef_search |
 
 ---
 
@@ -104,9 +77,11 @@ This project benchmarks two popular ANN algorithms — **HNSW** (Hierarchical Na
 
 *To be filled after running experiments. Expected findings:*
 
-- **HNSW** typically achieves higher QPS at high recall (≥90%) but uses more memory
-- **IVF-PQ** offers better memory compression (8× smaller than float32) with competitive speed at moderate recall
-- **Pareto frontier**: HNSW dominates at high recall; IVF-PQ wins on memory-constrained scenarios
+- **HNSW** achieves high QPS at high recall (≥90%) with moderate memory usage
+- **ef_search** controls the recall-QPS trade-off at query time
+- **M** and **ef_construction** control index quality and build time
+- Higher **M** increases memory but improves recall ceiling
+- Higher **ef_construction** improves graph quality at build-time cost
 
 ---
 
@@ -120,7 +95,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Execution (config.yaml)
+### 2. Configure Execution (`config.yaml`)
 
 Edit `config.yaml` to select which phases to run:
 
@@ -129,7 +104,6 @@ run:
   phase1_download: true      # Download SIFT1M dataset
   phase2_groundtruth: true   # Build Flat index & compute ground truth
   phase3_hnsw: true          # HNSW parameter sweep
-  phase3_ivfpq: true         # IVF-PQ parameter sweep
   phase4_visualize: true     # Generate plots & combined CSV
 ```
 
@@ -157,107 +131,80 @@ If all mirrors fail, you can manually download from:
 - https://github.com/facebookresearch/faiss/tree/main/benchs/sift1M
 - Place files in `data/` (`.gz` files will be auto-extracted on next run)
 
-### 4. View Results
+### 5. View Results
 
-- **CSV tables:** `results_hnsw.csv`, `results_ivfpq.csv`, `results_combined.csv`
-- **Plots:** `plot_recall_vs_qps.png`, `plot_memory.png`, `plot_build_time.png`
-
----
-
-## 📁 Project Structure
-
-```
-HNSW-IVF-PQ/
-├── config.yaml               # Configuration file (NEW)
-├── config_loader.py          # Config loader utility (NEW)
-├── requirements.txt          # Python dependencies
-├── download_data.py          # Phase 1: Download SIFT1M
-├── data_utils.py             # .fvecs/.ivecs I/O utilities
-├── phase2_groundtruth.py     # Phase 2: Flat index + ground truth
-├── phase3_hnsw.py            # Phase 3: HNSW parameter sweep
-├── phase3_ivfpq.py           # Phase 3: IVF-PQ parameter sweep
-├── phase4_visualize.py       # Phase 4: Plots & combined CSV
-├── run_all.py                # Orchestrator script
-├── README.md                 # This file
-└── data/                     # Dataset (created after download)
-    ├── sift_base.fvecs
-    ├── sift_query.fvecs
-    ├── sift_learn.fvecs
-    └── sift_groundtruth.ivecs
-```
+- **CSV tables:** `results_hnsw.csv`, `results_combined.csv`
+- **Plots:** `recall_vs_qps.png`, `memory_3d_bar.png`, `recall_vs_efsearch.png`
 
 ---
 
-## 🔧 Customization
+## 🔧 Configuration (`config.yaml`)
 
-### Modify Parameters via config.yaml (Recommended)
+All parameters are configurable via `config.yaml`.
 
-All parameters are now configurable via `config.yaml` — no code changes needed:
+---
 
-```yaml
-# HNSW parameters
-hnsw:
-  M: 16
-  ef_construction: 64
-  ef_search_values: [8, 16, 32, 64, 128]
-  k: 10
+## 🔬 Phase Details
 
-# IVF-PQ parameters
-ivfpq:
-  nlist: 1024
-  m: 8
-  nbits: 8
-  nprobe_values: [1, 4, 8, 16, 32]
-  k: 10
+### Phase 1: Download Data (`download_data.py`)
+- Downloads SIFT1M from multiple mirrors with fallback
+- Auto-detects and extracts `.gz` files
+- Skips already-downloaded files
+- Outputs to `data/` directory
 
-# Data paths
-data:
-  base_path: "data/sift_base.fvecs"
-  query_path: "data/sift_query.fvecs"
-  learn_path: "data/sift_learn.fvecs"
-  gt_path: "data/groundtruth_flat.ivecs"
-```
+### Phase 2: Ground Truth (`phase2_groundtruth.py`)
+- Builds `faiss.IndexFlatL2` (exact brute-force)
+- Computes ground truth for all queries at top-k
+- Saves ground truth indices (`.ivecs`) and distances (`.fvecs`)
+- Provides `recall_at_k_vectorized()` for fast evaluation
+- Validates query count matches between ground truth and predictions
 
-### Override Parameters via Command Line
+### Phase 3: HNSW Sweep (`phase3_hnsw.py`)
+- Grid search over M × ef_construction × ef_search
+- Builds index once per (M, ef_construction) pair
+- Sweeps ef_search on the same index (efficient)
+- Measures: build time, search time, QPS, Recall@10, index memory
+- Index memory measured via `faiss.serialize_index()`
+- Handles query/groundtruth count mismatches gracefully
+- Saves results to `results_hnsw.csv`
 
-You can also override specific parameters by modifying the config programmatically:
+### Phase 4: Visualization (`phase4_visualize.py`)
+- Loads HNSW results CSV
+- Generates 3 publication-quality plots:
+  1. **QPS vs Recall@10** (subplots per M)
+  2. **3D Recall Surface** (ef_construction × ef_search × M)
+  3. **Recall vs Memory** (rows per ef_construction)
+- Exports combined CSV
+- Uses serif fonts, consistent styling matching academic standards
 
-```python
-from config_loader import get_config
+---
 
-cfg = get_config()
-# Access values
-print(cfg.hnsw.M)           # 16
-print(cfg.hnsw.ef_search_values)  # [8, 16, 32, 64, 128]
-print(cfg.ivfpq.nlist)      # 1024
-```
+## 📦 Dependencies
 
-### Use GPU (if available)
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `faiss-cpu` | ≥1.7.4 | Vector search (HNSW, Flat) |
+| `numpy` | ≥1.21.0 | Array operations |
+| `psutil` | ≥5.9.0 | Memory measurement |
+| `matplotlib` | ≥3.5.0 | Static plots |
+| `plotly` | ≥5.10.0 | Interactive plots (optional) |
+| `pandas` | ≥1.4.0 | DataFrames, CSV I/O |
+| `requests` | ≥2.28.0 | HTTP downloads |
+| `tqdm` | ≥4.64.0 | Progress bars |
+| `pyyaml` | ≥6.0 | Config parsing |
 
-Replace `faiss-cpu` with `faiss-gpu` in `requirements.txt` and use:
-```python
-# For HNSW
-index = faiss.IndexHNSWFlat(d, M)
-# For IVF-PQ - move to GPU
-res = faiss.StandardGpuResources()
-gpu_index = faiss.index_cpu_to_gpu(res, 0, index)
-```
+**For GPU:** Replace `faiss-cpu` with `faiss-gpu` in `requirements.txt`
 
 ---
 
 ## 📚 References
 
 1. **HNSW:** Malkov & Yashunin, *Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs* (2018)
-2. **IVF-PQ:** Jégou et al., *Product Quantization for Nearest Neighbor Search* (2011)
-3. **Faiss Library:** Johnson et al., *Billion-scale similarity search with GPUs* (2019)
-4. **SIFT1M:** Jégou et al., *Evaluating Compact Descriptors* (2011)
+2. **Faiss Library:** Johnson et al., *Billion-scale similarity search with GPUs* (2019)
+3. **SIFT1M:** Jégou et al., *Evaluating Compact Descriptors* (2011)
 
 ---
 
 ## 📄 License
 
 MIT License — Feel free to use for research or production benchmarking.
-
----
-
-*Generated with ❤️ for ANN algorithm evaluation*

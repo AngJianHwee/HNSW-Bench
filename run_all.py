@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main runner script for HNSW vs IVF-PQ benchmark on SIFT1M.
+Main runner script for HNSW benchmark on SIFT1M.
 Orchestrates all phases based on config.yaml - no command line args needed.
 """
 import os
@@ -24,13 +24,12 @@ def main():
     cfg = get_config()
     
     print("=" * 60)
-    print("HNSW vs IVF-PQ Benchmark on SIFT1M")
+    print("HNSW Benchmark on SIFT1M")
     print("=" * 60)
     print("Execution plan from config.yaml:")
     print(f"  Phase 1 (Download):     {cfg.run.phase1_download}")
     print(f"  Phase 2 (Ground Truth): {cfg.run.phase2_groundtruth}")
     print(f"  Phase 3 (HNSW):         {cfg.run.phase3_hnsw}")
-    print(f"  Phase 3 (IVF-PQ):       {cfg.run.phase3_ivfpq}")
     print(f"  Phase 4 (Visualize):    {cfg.run.phase4_visualize}")
     
     success = True
@@ -47,26 +46,18 @@ def main():
     if cfg.run.phase3_hnsw and success:
         success &= run_command([sys.executable, "phase3_hnsw.py"], "Phase 3: HNSW parameter sweep")
     
-    # Phase 3: IVF-PQ
-    if cfg.run.phase3_ivfpq and success:
-        success &= run_command([sys.executable, "phase3_ivfpq.py"], "Phase 3: IVF-PQ parameter sweep")
-    
     # Phase 4: Visualization
     if cfg.run.phase4_visualize and success:
         success &= run_command([sys.executable, "phase4_visualize.py"], "Phase 4: Results visualization")
-    
-    # Phase 5: README (always available)
-    print("\n" + "=" * 60)
-    print("Phase 5: README.md template created (see README.md)")
-    print("=" * 60)
     
     if success:
         print("\n" + "=" * 60)
         print("ALL PHASES COMPLETED SUCCESSFULLY!")
         print("=" * 60)
         print("Output files:")
-        for f in [cfg.output.hnsw_results, cfg.output.ivfpq_results, cfg.output.combined_results,
-                  cfg.output.plot_recall_qps, cfg.output.plot_memory, cfg.output.plot_build_time]:
+        for f in [cfg.output.hnsw_results, cfg.output.combined_results,
+                  cfg.output.plot_recall_vs_qps, cfg.output.plot_recall_vs_efsearch,
+                  cfg.output.plot_memory_3d_bar]:
             if os.path.exists(f):
                 print(f"  ✓ {f}")
     else:

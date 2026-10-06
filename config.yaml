@@ -1,4 +1,4 @@
-# HNSW vs IVF-PQ Benchmark Configuration
+# HNSW Benchmark Configuration
 # All parameters can be tuned here without modifying code
 
 # Execution control - which phases to run
@@ -6,7 +6,6 @@ run:
   phase1_download: true
   phase2_groundtruth: true
   phase3_hnsw: true
-  phase3_ivfpq: true
   phase4_visualize: true
 
 # Data paths
@@ -17,7 +16,7 @@ data:
   gt_path: "data/groundtruth_flat.ivecs"
   gt_distances_path: "data/groundtruth_flat_distances.fvecs"
   # Fraction of data to use (0.0-1.0). Use 1.0 for full dataset, 0.1 for 10% (faster testing)
-  data_fraction: 0.5
+  data_fraction: 0.1
 
 # Ground truth parameters
 groundtruth:
@@ -26,22 +25,8 @@ groundtruth:
 # HNSW parameters
 hnsw:
   M_values: [16, 32, 64]                # 放弃 M=8（中等规模下太小，图太稀疏，Recall上限低）
-  ef_construction_values: [64, 128, 256] # 提升上限。ef_construction 对 Build 内存和时间影响大
+  ef_construction_values: [64, 128, 256, 512] # 提升上限。ef_construction 对 Build 内存和时间影响大
   ef_search_values: [16, 64, 128, 256]   # 这是运行时参数，加上 256 可以测出 >99% Recall 的极限 QPS
-  k: 10
-
-# IVF-PQ parameters
-ivfpq:
-  # Grid search over multiple parameter combinations
-  # nlist: number of inverted lists (common starting point: 4 * sqrt(N))
-  # For SIFT1M (N=1M), sqrt(N)=1000, so nlist=4000 is a good starting point
-  nlist_values: [1024, 2048, 4096]
-  # m: number of subquantizers (higher = better precision, more memory)
-  m_values: [32, 64, 128]      # 必须加上 128！128维向量用 m=128 是 IVF-PQ 在该数据集的高精杀手锏
-  # nbits: bits per subquantizer (8 = 256 centroids per subquantizer)
-  nbits_values: [8]
-  # nprobe: number of clusters to search at query time
-  nprobe_values: [16, 64, 256] # 加上一个较小的 nprobe（如16），能对比出更陡峭的 QPS 暴涨曲线
   k: 10
 
 # Visualization parameters
@@ -53,11 +38,7 @@ visualization:
 # Output paths
 output:
   hnsw_results: "results_hnsw.csv"
-  ivfpq_results: "results_ivfpq.csv"
   combined_results: "results_combined.csv"
-  plot_recall_qps: "plot_recall_vs_qps.png"
-  plot_memory: "plot_memory.png"
-  plot_build_time: "plot_build_time.png"
-  plot_3d_recall_qps_memory: "plot_3d_recall_qps_memory.png"
-  plot_3d_param_effects: "plot_3d_param_effects.png"
-  plot_3d_bar_recall_method_memory: "plot_3d_bar_recall_method_memory.png"
+  plot_recall_vs_qps: "recall_vs_qps.png"
+  plot_recall_vs_efsearch: "recall_vs_efsearch.png"
+  plot_memory_3d_bar: "memory_3d_bar.png"

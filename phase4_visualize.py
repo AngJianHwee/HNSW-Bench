@@ -1,478 +1,380 @@
 #!/usr/bin/env python3
 """
 Phase 4: Results Export and Visualization.
-Combines HNSW and IVF-PQ results, creates comparison plots.
+Creates 3 HNSW results plots based on combined results, following the style of _sample.plotting.py
 """
 import os
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 - needed for 3D projection
 import numpy as np
+from matplotlib.lines import Line2D
+from mpl_toolkits.mplot3d import Axes3D
 from config_loader import get_config
 
 
-def load_and_combine_results(
-    hnsw_path: str | None = None,
-    ivfpq_path: str | None = None
+# ============================================================
+# Global style (matching _sample.plotting.py)
+# ============================================================
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 10,
+    "axes.labelsize": 11,
+    "axes.titlesize": 12,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "figure.dpi": 150,
+    "axes.linewidth": 0.6,
+})
+
+
+def load_results(
+    hnsw_path: str | None = None
 ) -> pd.DataFrame:
-    """Load and combine results from both algorithms."""
+    """Load HNSW results."""
     cfg = get_config()
     
     resolved_hnsw_path = hnsw_path or cfg.output.hnsw_results
-    resolved_ivfpq_path = ivfpq_path or cfg.output.ivfpq_results
     
-    dfs = []
+    if not os.path.exists(resolved_hnsw_path):
+        raise FileNotFoundError(f"No result file found: {resolved_hnsw_path}. Run Phase 3 first.")
     
-    if os.path.exists(resolved_hnsw_path):
-        df_hnsw = pd.read_csv(resolved_hnsw_path)
-        dfs.append(df_hnsw)
-        print(f"Loaded HNSW results: {len(df_hnsw)} rows")
-    
-    if os.path.exists(resolved_ivfpq_path):
-        df_ivfpq = pd.read_csv(resolved_ivfpq_path)
-        dfs.append(df_ivfpq)
-        print(f"Loaded IVF-PQ results: {len(df_ivfpq)} rows")
-    
-    if not dfs:
-        raise FileNotFoundError("No result files found. Run Phase 3 first.")
-    
-    combined = pd.concat(dfs, ignore_index=True)
-    return combined
+    df_hnsw = pd.read_csv(resolved_hnsw_path)
+    print(f"Loaded HNSW results: {len(df_hnsw)} rows")
+    return df_hnsw
 
 
 def print_results_table(df: pd.DataFrame) -> None:
     """Print formatted results table."""
     print("\n" + "=" * 100)
-    print("COMBINED RESULTS")
+    print("HNSW RESULTS")
     print("=" * 100)
     
-    # Select key columns for display
     display_cols = ['algorithm']
     
-    # Add algorithm-specific params
-    for col in ['M', 'ef_construction', 'ef_search', 'nlist', 'm', 'nbits', 'nprobe']:
+    for col in ['M', 'ef_construction', 'ef_search']:
         if col in df.columns:
             display_cols.append(col)
     
-    display_cols += ['build_time_s', 'search_time_s', 'qps', 'recall@10', 'peak_memory_mb', 'index_memory_mb']
+    display_cols += ['build_time_s', 'search_time_s', 'qps', 'recall@10', 'index_memory_mb']
     display_cols = [c for c in display_cols if c in df.columns]
     
     print(df[display_cols].to_string(index=False, float_format=lambda x: f'{x:.4f}' if isinstance(x, float) else str(x)))
 
 
+# ============================================================
+# Plot: Recall (x) vs QPS (y)
+# Subplots per M, color by M, marker by ef_construction
+# ============================================================
 def plot_recall_vs_qps(df: pd.DataFrame, output_path: str | None = None) -> None:
-    """Plot Recall@10 vs QPS for both algorithms."""
     cfg = get_config()
-    output_path = output_path or cfg.output.plot_recall_qps
-    
-    plt.figure(figsize=(10, 7))
-    
-    # HNSW
-    hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        # Get HNSW params for label
-        M = hnsw['M'].iloc[0] if 'M' in hnsw.columns else '?'
-        ef_c = hnsw['ef_construction'].iloc[0] if 'ef_construction' in hnsw.columns else '?'
-        plt.plot(hnsw['recall@10'] * 100, hnsw['qps'], 'o-', 
-                 label=f'HNSW (M={M}, ef_construction={ef_c})', 
-                 linewidth=2, markersize=8, color='#2E86AB')
-        # Annotate ef_search values
-        for _, row in hnsw.iterrows():
-            plt.annotate(f"ef={int(row['ef_search'])}", 
-                        (row['recall@10'] * 100, row['qps']),
-                        textcoords="offset points", xytext=(5, 5), fontsize=9)
-    
-    # IVF-PQ
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        nlist = ivfpq['nlist'].iloc[0] if 'nlist' in ivfpq.columns else '?'
-        m = ivfpq['m'].iloc[0] if 'm' in ivfpq.columns else '?'
-        nbits = ivfpq['nbits'].iloc[0] if 'nbits' in ivfpq.columns else '?'
-        plt.plot(ivfpq['recall@10'] * 100, ivfpq['qps'], 's-', 
-                 label=f'IVF-PQ (nlist={nlist}, m={m}, nbits={nbits})', 
-                 linewidth=2, markersize=8, color='#A23B72')
-        # Annotate nprobe values
-        for _, row in ivfpq.iterrows():
-            plt.annotate(f"nprobe={int(row['nprobe'])}", 
-                        (row['recall@10'] * 100, row['qps']),
-                        textcoords="offset points", xytext=(5, -15), fontsize=9)
-    
-    plt.xlabel('Recall@10 (%)', fontsize=12)
-    plt.ylabel('QPS (queries/second)', fontsize=12)
-    plt.title('HNSW vs IVF-PQ: Recall@10 vs QPS Trade-off (SIFT1M)', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=11)
-    plt.grid(True, alpha=0.3)
-    plt.xlim(0, 105)
-    plt.ylim(bottom=0)
-    
-    # Add Pareto frontier annotation
-    plt.text(0.02, 0.98, 'Higher is better →', transform=plt.gca().transAxes, 
-             fontsize=10, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_memory_comparison(df: pd.DataFrame, flat_mem_mb: float | None = None, output_path: str | None = None) -> None:
-    """Plot memory usage comparison."""
-    cfg = get_config()
-    output_path = output_path or cfg.output.plot_memory
-    flat_mem_mb = flat_mem_mb or cfg.visualization.flat_memory_mb
-    
-    plt.figure(figsize=(10, 6))
-    
-    algorithms = []
-    memories = []
-    colors = []
-    
-    # Flat index memory (if provided)
-    if flat_mem_mb is not None:
-        algorithms.append('Flat\n(Exact)')
-        memories.append(flat_mem_mb)
-        colors.append('#E8E8E8')
-    
-    # HNSW
-    hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        # Use average index memory across ef_search values
-        hnsw_mem = hnsw['index_memory_mb'].mean()
-        M = hnsw['M'].iloc[0] if 'M' in hnsw.columns else '?'
-        algorithms.append(f'HNSW\n(M={M})')
-        memories.append(hnsw_mem)
-        colors.append('#2E86AB')
-    
-    # IVF-PQ
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        ivfpq_mem = ivfpq['index_memory_mb'].mean()
-        nlist = ivfpq['nlist'].iloc[0] if 'nlist' in ivfpq.columns else '?'
-        m = ivfpq['m'].iloc[0] if 'm' in ivfpq.columns else '?'
-        algorithms.append(f'IVF-PQ\n(nlist={nlist}, m={m})')
-        memories.append(ivfpq_mem)
-        colors.append('#A23B72')
-    
-    bars = plt.bar(algorithms, memories, color=colors, edgecolor='black', linewidth=1.2, width=0.6)
-    
-    # Add value labels on bars
-    for bar, mem in zip(bars, memories):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(memories)*0.01,
-                f'{mem:.0f} MB', ha='center', va='bottom', fontsize=11, fontweight='bold')
-    
-    plt.ylabel('Memory Usage (MB)', fontsize=12)
-    plt.title('Index Memory Comparison: Flat vs HNSW vs IVF-PQ (SIFT1M)', fontsize=14, fontweight='bold')
-    plt.grid(True, axis='y', alpha=0.3)
-    
-    # Add savings annotation if we have all three
-    if flat_mem_mb and len(algorithms) == 3:
-        hnsw_saving = (1 - memories[1]/flat_mem_mb) * 100
-        ivfpq_saving = (1 - memories[2]/flat_mem_mb) * 100
-        plt.text(0.5, 0.95, f'HNSW saves {hnsw_saving:.0f}% vs Flat\nIVF-PQ saves {ivfpq_saving:.0f}% vs Flat',
-                transform=plt.gca().transAxes, ha='center', va='top', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.8))
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_build_time_comparison(df: pd.DataFrame, output_path: str | None = None) -> None:
-    """Plot build time comparison."""
-    cfg = get_config()
-    output_path = output_path or cfg.output.plot_build_time
-    
-    plt.figure(figsize=(10, 6))
-    
-    algorithms = []
-    times = []
-    colors = []
+    output_path = output_path or cfg.output.plot_recall_vs_qps
     
     hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        algorithms.append('HNSW')
-        times.append(hnsw['build_time_s'].iloc[0])
-        colors.append('#2E86AB')
     
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        algorithms.append('IVF-PQ')
-        times.append(ivfpq['build_time_s'].iloc[0])
-        colors.append('#A23B72')
+    m_values = sorted(hnsw["M"].unique())
+    efc_values = sorted(hnsw["ef_construction"].unique())
     
-    bars = plt.bar(algorithms, times, color=colors, edgecolor='black', linewidth=1.2, width=0.5)
+    fig, axes = plt.subplots(
+        len(m_values),
+        1,
+        figsize=(10, 3.5 * len(m_values)),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    axes = axes.ravel()
     
-    for bar, t in zip(bars, times):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(times)*0.01,
-                f'{t:.1f}s', ha='center', va='bottom', fontsize=11, fontweight='bold')
+    # Markers for ef_construction
+    markers = ["o", "s", "^", "D", "v", "P", "X", "*"]
+    marker_map = {efc: markers[i % len(markers)] for i, efc in enumerate(efc_values)}
     
-    plt.ylabel('Build Time (seconds)', fontsize=12)
-    plt.title('Index Build Time Comparison', fontsize=14, fontweight='bold')
-    plt.grid(True, axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_3d_recall_qps_memory(df: pd.DataFrame, output_path: str | None = None) -> None:
-    """3D plot: Recall@10 vs QPS vs Peak Memory for both algorithms.
+    # Colors for M
+    colors = plt.get_cmap("Set2")(np.linspace(0, 1, len(m_values)))
+    color_map = {m: c for m, c in zip(m_values, colors)}
     
-    This shows the full trade-off surface: higher recall typically requires
-    more memory and/or lower QPS. The parameter (ef_search for HNSW, nprobe
-    for IVF-PQ) moves you along each algorithm's curve.
-    """
-    cfg = get_config()
-    output_path = output_path or cfg.output.plot_3d_recall_qps_memory
+    for ax, M in zip(axes, m_values):
+        for efc in efc_values:
+            subset = hnsw[(hnsw["M"] == M) & (hnsw["ef_construction"] == efc)]
+            if subset.empty:
+                continue
+            subset = subset.sort_values("recall@10")
+            ax.plot(
+                subset["recall@10"],
+                subset["qps"],
+                marker=marker_map[efc],
+                markersize=8,
+                linewidth=1.5,
+                alpha=0.85,
+                color=color_map[M],
+            )
+        ax.set_ylabel(f"QPS\nM={M}")
+        ax.grid(True, alpha=0.3)
     
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # HNSW
-    hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        M = hnsw['M'].iloc[0] if 'M' in hnsw.columns else '?'
-        ef_c = hnsw['ef_construction'].iloc[0] if 'ef_construction' in hnsw.columns else '?'
-        
-        x = hnsw['recall@10'] * 100
-        y = hnsw['qps']
-        z = hnsw['peak_memory_mb']
-        
-        # Plot line connecting points in order of ef_search
-        hnsw_sorted = hnsw.sort_values('ef_search')
-        ax.plot(hnsw_sorted['recall@10'] * 100, hnsw_sorted['qps'], hnsw_sorted['peak_memory_mb'],
-                'o-', label=f'HNSW (M={M}, ef_construction={ef_c})',
-                linewidth=2, markersize=8, color='#2E86AB')
-        
-        # Annotate ef_search values
-        for _, row in hnsw_sorted.iterrows():
-            ax.text(row['recall@10'] * 100, row['qps'], row['peak_memory_mb'],
-                    f"ef={int(row['ef_search'])}", fontsize=9, color='#2E86AB')
-    
-    # IVF-PQ
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        nlist = ivfpq['nlist'].iloc[0] if 'nlist' in ivfpq.columns else '?'
-        m = ivfpq['m'].iloc[0] if 'm' in ivfpq.columns else '?'
-        nbits = ivfpq['nbits'].iloc[0] if 'nbits' in ivfpq.columns else '?'
-        
-        ivfpq_sorted = ivfpq.sort_values('nprobe')
-        ax.plot(ivfpq_sorted['recall@10'] * 100, ivfpq_sorted['qps'], ivfpq_sorted['peak_memory_mb'],
-                's-', label=f'IVF-PQ (nlist={nlist}, m={m}, nbits={nbits})',
-                linewidth=2, markersize=8, color='#A23B72')
-        
-        # Annotate nprobe values
-        for _, row in ivfpq_sorted.iterrows():
-            ax.text(row['recall@10'] * 100, row['qps'], row['peak_memory_mb'],
-                    f"nprobe={int(row['nprobe'])}", fontsize=9, color='#A23B72')
-    
-    ax.set_xlabel('Recall@10 (%)', fontsize=11, labelpad=10)
-    ax.set_ylabel('QPS (queries/sec)', fontsize=11, labelpad=10)
-    ax.set_zlabel('Peak Memory (MB)', fontsize=11, labelpad=10)
-    ax.set_title('3D Trade-off: Recall@10 vs QPS vs Memory\n(HNSW: ef_search, IVF-PQ: nprobe)',
-                 fontsize=13, fontweight='bold', pad=20)
-    ax.legend(fontsize=10, loc='upper left')
-    
-    # Set axis limits for better visualization
-    ax.set_xlim(0, 105)
-    ax.set_ylim(bottom=0)
-    ax.set_zlim(bottom=0)
-    
-    # Add direction annotations
-    ax.text2D(0.02, 0.98, '← Higher Recall\n← Higher QPS\n← Lower Memory',
-              transform=ax.transAxes, fontsize=9, verticalalignment='top',
-              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_3d_param_effects(df: pd.DataFrame, output_path: str | None = None) -> None:
-    """3D plot: Parameter (ef_search/nprobe) vs Recall@10 vs QPS.
-    
-    Shows how the search parameter directly affects the recall-QPS trade-off.
-    Memory is shown as color/size for additional dimension.
-    """
-    cfg = get_config()
-    output_path = output_path or cfg.output.plot_3d_param_effects
-    
-    fig = plt.figure(figsize=(14, 10))
-    
-    # Subplot 1: HNSW - ef_search vs Recall vs QPS
-    ax1 = fig.add_subplot(121, projection='3d')
-    hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        hnsw_sorted = hnsw.sort_values('ef_search')
-        x = hnsw_sorted['ef_search']
-        y = hnsw_sorted['recall@10'] * 100
-        z = hnsw_sorted['qps']
-        c = hnsw_sorted['peak_memory_mb']
-        
-        scatter = ax1.scatter(x, y, z, c=c, cmap='Blues', s=100, edgecolor='black', linewidth=1, depthshade=True)
-        ax1.plot(x, y, z, 'o-', color='#2E86AB', linewidth=2, alpha=0.7)
-        
-        for _, row in hnsw_sorted.iterrows():
-            ax1.text(row['ef_search'], row['recall@10'] * 100, row['qps'],
-                    f"ef={int(row['ef_search'])}", fontsize=8, color='#2E86AB')
-        
-        ax1.set_xlabel('ef_search', fontsize=11, labelpad=10)
-        ax1.set_ylabel('Recall@10 (%)', fontsize=11, labelpad=10)
-        ax1.set_zlabel('QPS (queries/sec)', fontsize=11, labelpad=10)
-        ax1.set_title('HNSW: ef_search → Recall vs QPS\n(Color = Peak Memory)',
-                      fontsize=12, fontweight='bold', pad=15)
-        ax1.set_xscale('log', base=2)
-        
-        # Colorbar
-        cbar1 = plt.colorbar(scatter, ax=ax1, shrink=0.6, pad=0.1)
-        cbar1.set_label('Peak Memory (MB)', fontsize=9)
-    
-    # Subplot 2: IVF-PQ - nprobe vs Recall vs QPS
-    ax2 = fig.add_subplot(122, projection='3d')
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        ivfpq_sorted = ivfpq.sort_values('nprobe')
-        x = ivfpq_sorted['nprobe']
-        y = ivfpq_sorted['recall@10'] * 100
-        z = ivfpq_sorted['qps']
-        c = ivfpq_sorted['peak_memory_mb']
-        
-        scatter = ax2.scatter(x, y, z, c=c, cmap='Reds', s=100, edgecolor='black', linewidth=1, depthshade=True)
-        ax2.plot(x, y, z, 's-', color='#A23B72', linewidth=2, alpha=0.7)
-        
-        for _, row in ivfpq_sorted.iterrows():
-            ax2.text(row['nprobe'], row['recall@10'] * 100, row['qps'],
-                    f"nprobe={int(row['nprobe'])}", fontsize=8, color='#A23B72')
-        
-        ax2.set_xlabel('nprobe', fontsize=11, labelpad=10)
-        ax2.set_ylabel('Recall@10 (%)', fontsize=11, labelpad=10)
-        ax2.set_zlabel('QPS (queries/sec)', fontsize=11, labelpad=10)
-        ax2.set_title('IVF-PQ: nprobe → Recall vs QPS\n(Color = Peak Memory)',
-                      fontsize=12, fontweight='bold', pad=15)
-        ax2.set_xscale('log', base=2)
-        
-        # Colorbar
-        cbar2 = plt.colorbar(scatter, ax=ax2, shrink=0.6, pad=0.1)
-        cbar2.set_label('Peak Memory (MB)', fontsize=9)
-    
-    fig.suptitle('Parameter Sensitivity: How ef_search / nprobe Controls the Recall-QPS Trade-off',
-                 fontsize=14, fontweight='bold', y=1.02)
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_3d_bar_recall_method_memory(df: pd.DataFrame, output_path: str | None = None) -> None:
-    """3D bar plot: Method vs Memory vs Recall@10.
-    
-    Shows recall as bar height, with method (HNSW/IVF-PQ) and memory usage
-    as the two floor axes. Each bar represents a specific parameter setting
-    (ef_search for HNSW, nprobe for IVF-PQ).
-    """
-    cfg = get_config()
-    output_path = output_path or cfg.output.plot_3d_bar_recall_method_memory
-    
-    fig = plt.figure(figsize=(14, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Prepare data: each row is a bar
-    # x-axis: method (0=HNSW, 1=IVF-PQ)
-    # y-axis: peak memory (MB)
-    # z-axis: recall@10 (%)
-    
-    bars_data = []
-    
-    # HNSW bars
-    hnsw = df[df['algorithm'] == 'HNSW']
-    if len(hnsw) > 0:
-        hnsw_sorted = hnsw.sort_values('ef_search')
-        for _, row in hnsw_sorted.iterrows():
-            bars_data.append({
-                'method': 0,
-                'method_name': 'HNSW',
-                'memory': row['peak_memory_mb'],
-                'recall': row['recall@10'] * 100,
-                'param': f"ef={int(row['ef_search'])}",
-                'color': '#2E86AB',
-                'alpha': 0.7
-            })
-    
-    # IVF-PQ bars
-    ivfpq = df[df['algorithm'] == 'IVF-PQ']
-    if len(ivfpq) > 0:
-        ivfpq_sorted = ivfpq.sort_values('nprobe')
-        for _, row in ivfpq_sorted.iterrows():
-            bars_data.append({
-                'method': 1,
-                'method_name': 'IVF-PQ',
-                'memory': row['peak_memory_mb'],
-                'recall': row['recall@10'] * 100,
-                'param': f"nprobe={int(row['nprobe'])}",
-                'color': '#A23B72',
-                'alpha': 0.7
-            })
-    
-    if not bars_data:
-        print("No data for 3D bar plot")
-        return
-    
-    # Bar dimensions
-    dx = 0.4  # width along method axis
-    dy = 5    # width along memory axis (MB)
-    
-    # Plot bars
-    for i, bar in enumerate(bars_data):
-        x = bar['method']
-        y = bar['memory']
-        z = 0
-        dz = bar['recall']
-        
-        ax.bar3d(x, y, z, dx, dy, dz,
-                 color=bar['color'], alpha=bar['alpha'],
-                 edgecolor='black', linewidth=0.5, shade=True)
-        
-        # Add parameter label on top of bar
-        ax.text(x + dx/2, y + dy/2, dz + 1, bar['param'],
-                ha='center', va='bottom', fontsize=8, fontweight='bold',
-                color=bar['color'], rotation=0)
-        
-        # Add recall value on top
-        ax.text(x + dx/2, y + dy/2, dz + 3, f"{dz:.1f}%",
-                ha='center', va='bottom', fontsize=7, color='black')
-    
-    # Set labels and ticks
-    ax.set_xlabel('Method', fontsize=12, labelpad=15)
-    ax.set_ylabel('Peak Memory (MB)', fontsize=12, labelpad=15)
-    ax.set_zlabel('Recall@10 (%)', fontsize=12, labelpad=15)
-    
-    ax.set_xticks([0.2, 1.2])
-    ax.set_xticklabels(['HNSW', 'IVF-PQ'], fontsize=11)
-    
-    ax.set_title('3D Bar Plot: Recall@10 by Method and Memory Usage\n(Bar height = Recall, Labels = ef_search / nprobe)',
-                 fontsize=13, fontweight='bold', pad=20)
-    
-    ax.set_zlim(0, 110)
-    
-    # Add legend
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='#2E86AB', alpha=0.7, edgecolor='black', label='HNSW (ef_search)'),
-        Patch(facecolor='#A23B72', alpha=0.7, edgecolor='black', label='IVF-PQ (nprobe)')
+    # Custom legend for ef_construction markers
+    legend_efc = [
+        Line2D([0], [0], color="gray", marker=marker_map[efc], linestyle="None", markersize=8, label=f"ef_c={efc}")
+        for efc in efc_values
     ]
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
     
-    # Add annotation
-    ax.text2D(0.02, 0.98, 'Higher bars = Better recall\nWider bars = Memory range',
-              transform=ax.transAxes, fontsize=9, verticalalignment='top',
-              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    axes[0].legend(handles=legend_efc, title="ef_construction (marker)", loc="upper right", frameon=True)
+    axes[0].set_title("HNSW: QPS vs Recall@10")
+    axes[-1].set_xlabel("Recall@10")
+    axes[-1].set_xlim(0.83, 1.01)
+    fig.tight_layout()
     
-    plt.tight_layout()
+    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+# ============================================================
+# Plot: 3D bar plot — sort by distance to viewpoint
+# ============================================================
+def plot_memory_3d_bar(df: pd.DataFrame, output_path: str | None = None) -> None:
+    cfg = get_config()
+    output_path = output_path or cfg.output.plot_memory_3d_bar
+    
+    hnsw = df[df['algorithm'] == 'HNSW']
+    
+    fig = plt.figure(figsize=(9.5, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    
+    m_values = sorted(hnsw["M"].unique())
+    colors = plt.get_cmap("Set2")(np.linspace(0, 1, len(m_values)))
+    color_map_3d = {m: c for m, c in zip(m_values, colors)}
+    
+    efc_values = sorted(hnsw["ef_construction"].unique())
+    efs_values = sorted(hnsw["ef_search"].unique())
+    m_count = len(m_values)
+    
+    bar_width = 0.55 / m_count
+    bar_depth = 0.55
+    
+    # ---------- visible z range ----------
+    zmin, zmax = 0.60, 1.00
+    
+    # ---------- camera ----------
+    elev = 22
+    azim = 215 + 90
+    ax.view_init(elev=elev, azim=azim)
+    
+    # approximate eye position in data coordinates
+    R = 12.0   # camera distance
+    elev_r = np.deg2rad(elev)
+    azim_r = np.deg2rad(azim)
+    
+    eye = np.array([
+        R * np.cos(elev_r) * np.cos(azim_r),
+        R * np.cos(elev_r) * np.sin(azim_r),
+        R * np.sin(elev_r)
+    ])
+    
+    # ---------- collect bars ----------
+    bars = []   # (x, y, z, dx, dy, dz, color, dist)
+    
+    for m_index, M in enumerate(m_values):
+        group = hnsw[hnsw["M"] == M]
+        x_idx = group["ef_construction"].map(
+            {v: i for i, v in enumerate(efc_values)}
+        ).to_numpy()
+        y_idx = group["ef_search"].map(
+            {v: i for i, v in enumerate(efs_values)}
+        ).to_numpy()
+        
+        x = x_idx - 0.27 + m_index * bar_width
+        y = y_idx - bar_depth / 2
+        z = np.full(len(group), zmin)
+        dz = group["recall@10"].to_numpy() - zmin
+        
+        for i in range(len(group)):
+            # center of the bar (for distance)
+            cx = x[i] + bar_width / 2
+            cy = y[i] + bar_depth / 2
+            cz = z[i] + dz[i] / 2
+            
+            # Euclidean distance to eye → larger = farther
+            dist = np.linalg.norm(np.array([cx, cy, cz]) - eye)
+            
+            bars.append((
+                x[i], y[i], z[i],
+                bar_width, bar_depth, dz[i],
+                color_map_3d[M],
+                dist
+            ))
+    
+    # far → near
+    bars.sort(key=lambda b: b[7], reverse=True)
+    
+    # ---------- draw ----------
+    for x, y, z, dx, dy, dz, color, _ in bars:
+        ax.bar3d(
+            x, y, z, dx, dy, dz,
+            color=color,
+            alpha=0.85,
+            shade=True,
+            edgecolor="k",
+            linewidth=0.3,
+        )
+    
+    # ---------- cosmetics ----------
+    ax.set_xlabel("ef_construction", labelpad=8)
+    ax.set_ylabel("ef_search", labelpad=8)
+    ax.set_zlabel("Recall@10", labelpad=6)
+    ax.set_title("HNSW Recall@10 by ef_construction & ef_search", pad=12)
+    
+    ax.set_xticks(range(len(efc_values)), efc_values)
+    ax.set_yticks(range(len(efs_values)), efs_values)
+    ax.set_zlim(zmin, zmax)
+    
+    ax.xaxis.pane.set_edgecolor('w')
+    ax.yaxis.pane.set_edgecolor('w')
+    ax.zaxis.pane.set_edgecolor('w')
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.grid(False)
+    
+    legend_handles = [
+        Line2D([0], [0], marker="s", color="w",
+               markerfacecolor=color_map_3d[m], markersize=9,
+               label=f"M = {m}")
+        for m in m_values
+    ]
+    ax.legend(
+        handles=legend_handles,
+        title="M",
+        loc="upper left",
+        bbox_to_anchor=(1.02, 0.95),
+        frameon=True,
+        edgecolor="black",
+        title_fontsize=9,
+    )
+    
+    fig.tight_layout()
+    plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+# ============================================================
+# Plot 3: recall@10 vs index_memory_mb
+# one row per ef_construction
+# lines connect same ef_search; markers differ by M
+# independent x/y axes per row
+# ============================================================
+def plot_recall_vs_efsearch(df: pd.DataFrame, output_path: str | None = None) -> None:
+    cfg = get_config()
+    output_path = output_path or cfg.output.plot_recall_vs_efsearch
+    
+    hnsw = df[df['algorithm'] == 'HNSW']
+    
+    efc_values = sorted(hnsw["ef_construction"].unique())
+    m_values   = sorted(hnsw["M"].unique())
+    efs_values = sorted(hnsw["ef_search"].unique())
+    
+    # markers & colors
+    markers = ["o", "s", "D", "^", "v", "P"]
+    marker_map = {m: markers[i % len(markers)] for i, m in enumerate(m_values)}
+    
+    # soft color cycle for the ef_search lines
+    efs_colors = plt.get_cmap("tab10")(np.linspace(0, 0.9, len(efs_values)))
+    efs_color_map = {efs: efs_colors[i] for i, efs in enumerate(efs_values)}
+    
+    n_rows = len(efc_values)
+    fig, axes = plt.subplots(
+        n_rows, 1,
+        figsize=(8, 2.8 * n_rows),
+        sharex=False,
+        sharey=False,
+    )
+    
+    if n_rows == 1:
+        axes = [axes]
+    
+    for ax, efc in zip(axes, efc_values):
+        sub = hnsw[hnsw["ef_construction"] == efc].copy()
+        
+        # --- lines: same ef_search ---
+        for efs in efs_values:
+            g = sub[sub["ef_search"] == efs].sort_values("index_memory_mb")
+            if len(g) > 1:
+                ax.plot(
+                    g["index_memory_mb"],
+                    g["recall@10"],
+                    color=efs_color_map[efs],
+                    linewidth=1.2,
+                    alpha=0.75,
+                    zorder=1,
+                )
+        
+        # --- markers: different M ---
+        for M in m_values:
+            g = sub[sub["M"] == M]
+            ax.scatter(
+                g["index_memory_mb"],
+                g["recall@10"],
+                marker=marker_map[M],
+                s=45,
+                c=[efs_color_map[efs] for efs in g["ef_search"]],
+                edgecolors="black",
+                linewidths=0.6,
+                zorder=3,
+            )
+        
+        ax.set_ylabel("Recall@10")
+        ax.set_title(f"ef_construction = {efc}", loc="left", fontsize=11)
+        ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.35)
+        ax.set_axisbelow(True)
+        ax.set_facecolor("white")
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.7)
+    
+    # only bottom row gets x-label
+    axes[-1].set_xlabel("Index memory (MB)")
+    
+    # M markers legend
+    m_handles = [
+        Line2D(
+            [0], [0],
+            marker=marker_map[m],
+            color="none",
+            markerfacecolor="gray",
+            markeredgecolor="black",
+            markersize=7,
+            label=f"M={m}",
+        )
+        for m in m_values
+    ]
+    marker_legend = axes[0].legend(
+        handles=m_handles,
+        title="M",
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        frameon=True,
+        edgecolor="black",
+        fontsize=8,
+    )
+    axes[0].add_artist(marker_legend)
+    
+    # ef_search lines legend
+    efs_handles = [
+        Line2D([0], [0], color=efs_color_map[efs], lw=1.5, label=f"ef_search={efs}")
+        for efs in efs_values
+    ]
+    axes[0].legend(
+        handles=efs_handles,
+        title="ef_search",
+        loc="upper left",
+        bbox_to_anchor=(1.02, 0.55),
+        frameon=True,
+        edgecolor="black",
+        fontsize=8,
+    )
+    
+    fig.tight_layout(rect=(0.0, 0.0, 0.82, 1.0))
     plt.savefig(output_path, dpi=cfg.visualization.dpi, bbox_inches='tight')
     plt.close()
     print(f"Saved: {output_path}")
@@ -488,11 +390,11 @@ def export_combined_csv(df: pd.DataFrame, output_path: str | None = None) -> Non
 
 def main():
     print("=" * 60)
-    print("Phase 4: Results Export & Visualization")
+    print("Phase 4: Results Export & Visualization (3 Plots)")
     print("=" * 60)
     
     # Load results
-    df = load_and_combine_results()
+    df = load_results()
     
     # Print table
     print_results_table(df)
@@ -500,27 +402,21 @@ def main():
     # Export combined CSV
     export_combined_csv(df)
     
-    # Create plots
-    print("\nGenerating plots...")
+    # Create 3 plots
+    print("\nGenerating 3 plots...")
     plot_recall_vs_qps(df)
-    plot_memory_comparison(df)
-    plot_build_time_comparison(df)
-    plot_3d_recall_qps_memory(df)
-    plot_3d_param_effects(df)
-    plot_3d_bar_recall_method_memory(df)
+    plot_memory_3d_bar(df)
+    plot_recall_vs_efsearch(df)
     
     print("\n" + "=" * 60)
-    print("VISUALIZATION COMPLETE")
+    print("VISUALIZATION COMPLETE - 3 Plots Generated")
     print("=" * 60)
     cfg = get_config()
     print("Generated files:")
     print(f"  - {cfg.output.combined_results}")
-    print(f"  - {cfg.output.plot_recall_qps}")
-    print(f"  - {cfg.output.plot_memory}")
-    print(f"  - {cfg.output.plot_build_time}")
-    print(f"  - {cfg.output.plot_3d_recall_qps_memory}")
-    print(f"  - {cfg.output.plot_3d_param_effects}")
-    print(f"  - {cfg.output.plot_3d_bar_recall_method_memory}")
+    print(f"  - {cfg.output.plot_recall_vs_qps}")
+    print(f"  - {cfg.output.plot_memory_3d_bar}")
+    print(f"  - {cfg.output.plot_recall_vs_efsearch}")
 
 
 if __name__ == "__main__":
